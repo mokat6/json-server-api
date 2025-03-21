@@ -6,6 +6,8 @@ Implemented End-points: login,register
 
 ## Install
 
+Node 18/20 
+
 ```bash
 $ npm install
 ```
