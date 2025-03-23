@@ -15,10 +15,6 @@ const SECRET_KEY = "123456789";
 
 const expiresIn = "1h";
 
-const tokenBlacklist = new Set(); // Store revoked tokens
-// TTL for blacklisted tokens (1 hour)
-const TTL = 1 * 60 * 60 * 1000; // 1 hour
-
 // Create a token from a payload
 function createToken(payload) {
   return jwt.sign(payload, SECRET_KEY, { expiresIn });
@@ -85,89 +81,41 @@ server.post("/auth/login", (req, res) => {
   console.log("login endpoint called; request body:");
   console.log(req.body);
   const { email, password } = req.body;
-  if (!isAuthenticated({ email, password })) {
-    return res.status(401).json({ status: 401, message: "Incorrect email or password" });
+  if (isAuthenticated({ email, password }) === false) {
+    const status = 401;
+    const message = "Incorrect email or password";
+    res.status(status).json({ status, message });
+    return;
   }
   const access_token = createToken({ email, password });
   console.log("Access Token:" + access_token);
   res.status(200).json({ access_token });
-
-  // Clean expired tokens from the blacklist
-  console.log("cleaning stressed filled days");
-  cleanExpiredTokens();
-});
-
-// Logout: Invalidate the token
-server.post("/auth/logout", (req, res) => {
-  const token = req.headers.authorization?.split(" ")[1];
-
-  if (!token) {
-    return res.status(401).json({ status: 401, message: "No token provided" });
-  }
-
-  try {
-    // Verify token before processing logout
-    const verifyTokenResult = verifyToken(token);
-
-    if (verifyTokenResult instanceof Error) {
-      return res.status(401).json({ status: 401, message: "Invalid access token" });
-    }
-
-    // Add the token to the blacklist with the current timestamp to invalidate it
-    tokenBlacklist.add({ token, timestamp: Date.now() });
-    res.status(200).json({ message: "Logged out successfully" });
-  } catch (err) {
-    return res.status(401).json({ status: 401, message: "Error: access_token is revoked" });
-  }
 });
 
 server.use(/^(?!\/auth).*$/, (req, res, next) => {
-  const token = req.headers.authorization?.split(" ")[1];
-
-  if (!token) {
-    return res.status(401).json({ status: 401, message: "Error in authorization format" });
+  if (req.headers.authorization === undefined || req.headers.authorization.split(" ")[0] !== "Bearer") {
+    const status = 401;
+    const message = "Error in authorization format";
+    res.status(status).json({ status, message });
+    return;
   }
-
-  if (isTokenBlacklisted(token)) {
-    return res.status(401).json({ status: 401, message: "Token has been revoked" });
-  }
-
   try {
-    const verifyTokenResult = verifyToken(token);
+    let verifyTokenResult;
+    verifyTokenResult = verifyToken(req.headers.authorization.split(" ")[1]);
 
     if (verifyTokenResult instanceof Error) {
-      return res.status(401).json({ status: 401, message: "Invalid access token" });
+      const status = 401;
+      const message = "Access token not provided";
+      res.status(status).json({ status, message });
+      return;
     }
-
     next();
   } catch (err) {
-    res.status(401).json({ status: 401, message: "Error: access_token is revoked" });
+    const status = 401;
+    const message = "Error access_token is revoked";
+    res.status(status).json({ status, message });
   }
 });
-
-function isTokenBlacklisted(token) {
-  // Check if the token exists in the blacklist and hasn't expired
-  return [...tokenBlacklist].some(({ token: blacklistedToken, timestamp }) => {
-    const now = Date.now();
-    if (now - timestamp > TTL) {
-      tokenBlacklist.delete({ token: blacklistedToken, timestamp }); // Remove expired token
-      return false;
-    }
-    return blacklistedToken === token;
-  });
-}
-
-// Function to clean expired tokens from the blacklist
-function cleanExpiredTokens() {
-  const now = Date.now();
-
-  // Iterate over the blacklisted tokens and remove expired ones
-  for (const { token, timestamp } of tokenBlacklist) {
-    if (now - timestamp > TTL) {
-      tokenBlacklist.delete({ token, timestamp });
-    }
-  }
-}
 
 server.use(router);
 
